@@ -1,5 +1,7 @@
 # monitoring-stack-starter
 
+[![check](https://github.com/bashirii/monitoring-stack-starter/actions/workflows/check.yml/badge.svg)](https://github.com/bashirii/monitoring-stack-starter/actions/workflows/check.yml)
+
 A small, complete monitoring and alerting stack for Docker servers, with a demo service you can break on purpose. You run one command, and you get dashboards, alerts that reach an inbox, and a way to prove the alerts work.
 
 It answers four questions about a server:
@@ -95,7 +97,7 @@ docker compose kill -s HUP prometheus
 2. **Add it to `prometheus/prometheus.yml`** as a new job, on the same Docker network.
 3. **Add an outside check** by adding its address to the `blackbox-http` targets.
 4. **Reuse the dashboards.** The queries in `scripts/build-dashboards.py` use `job="demo-api"`: change the job name, run the script, and commit the JSON.
-5. **Run `./scripts/check.sh`.** It validates the configuration and runs the rule unit tests, with nothing started.
+5. **Run `./scripts/check.sh`.** It validates the configuration and runs the rule unit tests, with nothing started. The same script runs on every push in GitHub Actions.
 
 ## Slack, a real mail server and the Watchdog
 
@@ -169,6 +171,7 @@ grafana/                     datasource and dashboards, provisioned as code
 demo-api/                    the service that gets monitored
 tests/rules_test.yml         unit tests for the alert rules
 scripts/                     secrets, static checks, load, alert test, dashboard check, dashboard generator
+.github/workflows/check.yml  runs the static checks and rule unit tests on every push
 ```
 
 ## Licence

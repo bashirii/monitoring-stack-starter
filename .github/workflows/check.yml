@@ -1,0 +1,20 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static checks and rule unit tests
+        run: ./scripts/check.sh
+      - name: Dashboards match the generator
+        run: git diff --exit-code -- grafana/dashboards
