@@ -1,0 +1,181 @@
+name: monitoring
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ---- the thing being watched -------------------------------------------------------------------
+  demo-api:
+    <<: [*restart, *logging]
+    build: ./demo-api
+    image: monitoring-demo-api:local
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${DEMO_PORT:-8000}:8000"
+    networks: [monitoring]
+    mem_limit: 128m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+
+  redis:
+    <<: [*restart, *logging]
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb"]
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  postgres:
+    <<: [*restart, *logging]
+    image: postgres:17
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_DB: app
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---- collectors: turn a thing into numbers ------------------------------------------------------
+  node-exporter:
+    <<: [*restart, *logging]
+    image: prom/node-exporter:v1.12.1
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [monitoring]
+
+  cadvisor:
+    <<: [*restart, *logging]
+    image: ghcr.io/google/cadvisor:v0.60.6
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks: [monitoring]
+
+  redis-exporter:
+    <<: [*restart, *logging]
+    image: oliver006/redis_exporter:v1.96.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on: [redis]
+    networks: [monitoring]
+
+  postgres-exporter:
+    <<: [*restart, *logging]
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    environment:
+      DATA_SOURCE_URI: postgres:5432/app?sslmode=disable
+      DATA_SOURCE_USER: app
+      DATA_SOURCE_PASS_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [monitoring]
+
+  blackbox:
+    <<: [*restart, *logging]
+    image: prom/blackbox-exporter:v0.29.1
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [monitoring]
+
+  # ---- the brain: store, evaluate, route, show ----------------------------------------------------
+  prometheus:
+    <<: [*restart, *logging]
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    networks: [monitoring]
+
+  alertmanager:
+    <<: [*restart, *logging]
+    image: prom/alertmanager:v0.34.2
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertdata:/alertmanager
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"
+    networks: [monitoring]
+
+  grafana:
+    <<: [*restart, *logging]
+    image: grafana/grafana-oss:13.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/service-overview.json
+    secrets: [grafana_admin_password]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    depends_on: [prometheus]
+    networks: [monitoring]
+
+  # Receives the alert emails so you can see them without a mail server. Remove it in production
+  # and point alertmanager.yml at a real SMTP server.
+  mailpit:
+    <<: [*restart, *logging]
+    image: axllent/mailpit:v1.33.0
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${MAILPIT_PORT:-8025}:8025"
+    networks: [monitoring]
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password
+
+networks:
+  monitoring:
+
+volumes:
+  pgdata:
+  promdata:
+  alertdata:
+  grafanadata:

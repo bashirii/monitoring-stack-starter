@@ -1,0 +1,130 @@
+groups:
+  # Is it up? These are the alerts that wake someone.
+  - name: availability
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: Alerting is working
+          description: This alert always fires. If it stops reaching your dead man's switch (a heartbeat service), the alert pipeline is broken.
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} (job {{ $labels.job }}) for 1 minute. The service or its exporter is stopped, or the network path is broken."
+          runbook: "docker compose ps, then docker compose logs --tail 50 <service>"
+
+      - alert: ProbeFailed
+        expr: probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} does not answer from outside"
+          description: "The HTTP check of {{ $labels.instance }} failed for 1 minute."
+
+      - alert: CertificateExpiresSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Certificate for {{ $labels.instance }} ends in {{ $value | humanize }} days"
+          description: "Renew it. Needs an https target in the blackbox job."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Redis is not answering
+          description: "The Redis exporter reaches no Redis server."
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: PostgreSQL is not answering
+          description: "The PostgreSQL exporter cannot connect to the database."
+
+  # How is the service doing? Users feel these first.
+  - name: service
+    rules:
+      - alert: HighErrorRate
+        expr: job:http_errors:ratio_rate5m > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of requests to {{ $labels.job }} fail"
+          description: "{{ $value | humanizePercentage }} of requests returned a 5xx status over the last 5 minutes."
+
+      - alert: HighLatencyP95
+        expr: job:http_request_duration_seconds:p95_5m > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "95% of requests to {{ $labels.job }} take longer than 0.5 s"
+          description: "The 95th percentile is {{ $value | humanizeDuration }} over the last 5 minutes."
+
+  # The machine and its containers.
+  - name: host
+    rules:
+      - alert: HostHighCpu
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU is above 85% on {{ $labels.instance }}"
+          description: "Average CPU use over 5 minutes has been above 85% for 10 minutes."
+
+      - alert: HostHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory use is above 90% on {{ $labels.instance }}"
+          description: "Available memory is under 10% of the total."
+
+      - alert: HostDiskAlmostFull
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 15% free on {{ $labels.mountpoint }} ({{ $labels.instance }})"
+          description: "{{ $value | humanize }}% of the disk is free."
+
+      - alert: HostDiskFillsIn24h
+        # "and ... offset 6h" keeps it quiet for the first 6 hours of a new stack, when there is too little history to predict from.
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}[6h], 24 * 3600) < 0
+          and
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} offset 6h
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} is on course to fill within 24 hours"
+          description: "At the rate of the last 6 hours the free space reaches zero in under a day."
+
+      - alert: ContainerKilledForMemory
+        expr: increase(container_oom_events_total{name!=""}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.name }} was killed for using too much memory"
+          description: "The kernel's out-of-memory killer stopped it. Raise its memory limit or fix the leak."

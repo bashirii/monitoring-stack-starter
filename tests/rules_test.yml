@@ -1,0 +1,164 @@
+# Unit tests for the alert rules: feed made-up numbers in, say which alerts must fire.
+# Run: scripts/check.sh   (uses promtool from the Prometheus image)
+rule_files:
+  - ../prometheus/rules/recording.yml
+  - ../prometheus/rules/alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a service that stops answering raises TargetDown after one minute
+    interval: 1m
+    input_series:
+      - series: 'up{job="demo-api", instance="demo-api:8000"}'
+        values: '1 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: demo-api, instance: "demo-api:8000"}
+            exp_annotations:
+              summary: "demo-api is down"
+              description: "Prometheus cannot scrape demo-api:8000 (job demo-api) for 1 minute. The service or its exporter is stopped, or the network path is broken."
+              runbook: "docker compose ps, then docker compose logs --tail 50 <service>"
+
+  - name: half of the requests failing raises HighErrorRate, a healthy service does not
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="demo-api", path="/work", status="200"}'
+        values: '0+60x12'
+      - series: 'http_requests_total{job="demo-api", path="/error", status="500"}'
+        values: '0+60x12'
+      - series: 'http_requests_total{job="other", path="/work", status="200"}'
+        values: '0+60x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical, job: demo-api}
+            exp_annotations:
+              summary: "More than 5% of requests to demo-api fail"
+              description: "50% of requests returned a 5xx status over the last 5 minutes."
+
+  - name: slow responses raise HighLatencyP95
+    interval: 1m
+    input_series:
+      # every request lands in the 0.5 to 1 second bucket
+      - series: 'http_request_duration_seconds_bucket{job="demo-api", path="/slow", le="0.5"}'
+        values: '0+0x12'
+      - series: 'http_request_duration_seconds_bucket{job="demo-api", path="/slow", le="1"}'
+        values: '0+60x12'
+      - series: 'http_request_duration_seconds_bucket{job="demo-api", path="/slow", le="+Inf"}'
+        values: '0+60x12'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighLatencyP95
+        exp_alerts:
+          - exp_labels: {severity: warning, job: demo-api}
+            exp_annotations:
+              summary: "95% of requests to demo-api take longer than 0.5 s"
+              description: "The 95th percentile is 975ms over the last 5 minutes."
+
+  - name: a failed outside check raises ProbeFailed
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-http", instance="http://demo-api:8000/health"}'
+        values: '1 1 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ProbeFailed
+        exp_alerts:
+          - exp_labels: {severity: critical, job: blackbox-http, instance: "http://demo-api:8000/health"}
+            exp_annotations:
+              summary: "http://demo-api:8000/health does not answer from outside"
+              description: "The HTTP check of http://demo-api:8000/health failed for 1 minute."
+
+  - name: Redis and PostgreSQL down
+    interval: 1m
+    input_series:
+      - series: 'redis_up{job="redis", instance="redis-exporter:9121"}'
+        values: '1 0 0 0'
+      - series: 'pg_up{job="postgres", instance="postgres-exporter:9187"}'
+        values: '1 0 0 0'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: redis, instance: "redis-exporter:9121"}
+            exp_annotations:
+              summary: "Redis is not answering"
+              description: "The Redis exporter reaches no Redis server."
+      - eval_time: 3m
+        alertname: PostgresDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: postgres, instance: "postgres-exporter:9187"}
+            exp_annotations:
+              summary: "PostgreSQL is not answering"
+              description: "The PostgreSQL exporter cannot connect to the database."
+
+  - name: a disk with under 15 percent free raises HostDiskAlmostFull
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{instance="node-exporter:9100", mountpoint="/", fstype="ext4"}'
+        values: '10000000000x10'
+      - series: 'node_filesystem_size_bytes{instance="node-exporter:9100", mountpoint="/", fstype="ext4"}'
+        values: '100000000000x10'
+      - series: 'node_filesystem_avail_bytes{instance="node-exporter:9100", mountpoint="/data", fstype="ext4"}'
+        values: '60000000000x10'
+      - series: 'node_filesystem_size_bytes{instance="node-exporter:9100", mountpoint="/data", fstype="ext4"}'
+        values: '100000000000x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HostDiskAlmostFull
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: "node-exporter:9100", mountpoint: "/", fstype: ext4}
+            exp_annotations:
+              summary: "Less than 15% free on / (node-exporter:9100)"
+              description: "10% of the disk is free."
+
+  - name: memory above 90 percent raises HostHighMemory
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemTotal_bytes{instance="node-exporter:9100"}'
+        values: '1000x10'
+      - series: 'node_memory_MemAvailable_bytes{instance="node-exporter:9100"}'
+        values: '50x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HostHighMemory
+        exp_alerts:
+          - exp_labels: {severity: warning, instance: "node-exporter:9100"}
+            exp_annotations:
+              summary: "Memory use is above 90% on node-exporter:9100"
+              description: "Available memory is under 10% of the total."
+
+  - name: a container killed for memory raises ContainerKilledForMemory at once
+    interval: 1m
+    input_series:
+      - series: 'container_oom_events_total{name="demo-api"}'
+        values: '0 0 0 1 1 1'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ContainerKilledForMemory
+        exp_alerts:
+          - exp_labels: {severity: critical, name: demo-api}
+            exp_annotations:
+              summary: "Container demo-api was killed for using too much memory"
+              description: "The kernel's out-of-memory killer stopped it. Raise its memory limit or fix the leak."
+
+  - name: the Watchdog always fires
+    interval: 1m
+    input_series:
+      - series: 'up{job="x"}'
+        values: '1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: {severity: none}
+            exp_annotations:
+              summary: "Alerting is working"
+              description: "This alert always fires. If it stops reaching your dead man's switch (a heartbeat service), the alert pipeline is broken."
