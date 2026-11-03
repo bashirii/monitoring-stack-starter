@@ -83,10 +83,10 @@ docker compose stop demo-api              # TargetDown and ProbeFailed
 | `ContainerKilledForMemory` | The kernel killed a container for memory | critical | Raise its memory limit, or fix the leak |
 | `CertificateExpiresSoon` | An https target's certificate ends in under 14 days | warning | Renew it. Needs an https target in the blackbox job |
 
-The thresholds are starting points. Change them in `prometheus/rules/alerts.yml`, run `./scripts/check.sh`, and reload Prometheus:
+The thresholds are starting points. Change them in `prometheus/rules/alerts.yml`, run `./scripts/check.sh`, and reload Prometheus with a signal (the web reload and shutdown endpoints are left switched off on purpose, because they have no login):
 
 ```bash
-docker compose exec prometheus wget -qO- --post-data='' http://localhost:9090/-/reload
+docker compose kill -s HUP prometheus
 ```
 
 ## Use it for your own services
@@ -105,7 +105,10 @@ docker compose exec prometheus wget -qO- --post-data='' http://localhost:9090/-/
 
 ## Security notes
 
-- Every published port is bound to `127.0.0.1`. To reach Grafana from another machine, put a reverse proxy with HTTPS and a login in front of it. Do not publish Prometheus or Alertmanager to the internet: they have no login.
+- Every published port is bound to `127.0.0.1`. To reach Grafana from another machine, put a reverse proxy with HTTPS and a login in front of it. Do not publish Prometheus, Alertmanager or Mailpit to the internet: they have no login.
+- Prometheus runs without its web reload and shutdown endpoints (`--web.enable-lifecycle` is off), so a web page you visit cannot stop it or reload it by sending a request to `127.0.0.1:9090`. Reload with `docker compose kill -s HUP prometheus`.
+- Alertmanager and Mailpit have web pages and an API with no login. They are bound to `127.0.0.1` and hold only demo data here. Before you bind them to another address, add an authenticating reverse proxy, or give Alertmanager a `--web.config.file` with `basic_auth_users`, and stop publishing Mailpit's port (remove the service when you use a real mail server).
+- Browsers can reach `127.0.0.1` from any web page you open. That is the reason for the three points above; keep the stack off a machine you use to browse untrusted sites if the data in it matters.
 - The passwords are random files in `./secrets` (ignored by git). The compose file reads them as Docker secrets.
 - `node-exporter` and `cAdvisor` read the host's filesystem read-only. That is how they see the machine, and it is why they should not be exposed.
 - The demo service runs as a non-root user with a read-only filesystem and no extra capabilities.
