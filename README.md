@@ -174,8 +174,7 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 
 **Not tested yet:**
 
-- The email layout in Outlook, Apple Mail and the phone mail apps, and in Gmail's dark mode.
-- A Slack message that groups several alerts.
+- The email layout in Outlook and Apple Mail. Gmail (web and Android, light and dark mode) and Slack (desktop and phone, including a message that groups several alerts) were checked by eye.
 - An SMTP provider other than Gmail.
 - The `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked).
 - The host alerts on a live machine: CPU, memory, disk and out-of-memory are covered by unit tests but were not provoked for real.
