@@ -26,6 +26,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SMTP_KEYS = ("SMTP_SERVER", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD")
 CONTAINER_SECRETS = "/etc/alertmanager/secrets"
+# Marks a compose.override.yaml this script wrote, so it is safe to overwrite.
+OVERRIDE_HEADER = "# Written by scripts/alerting.py"
 
 
 def read_env(path):
@@ -152,7 +154,7 @@ def render(env, root):
         template = template.replace("    # @@SLACK@@\n", "")
 
     override = [
-        "# Written by scripts/alerting.py from .env. Not committed. Delete it to go back to Mailpit only.",
+        f"{OVERRIDE_HEADER} from .env. Not committed. Delete it to go back to Mailpit only.",
         "services:",
         "  alertmanager:",
         "    volumes:",
@@ -172,10 +174,15 @@ def main():
 
     if not pathlib.Path(args.env).exists():
         sys.exit(f"error: {args.env} not found. Copy .env.example to .env and fill in SMTP and Slack.")
+    # Never overwrite a user's own override. Check first: render() writes the secret files.
+    override_path = root / "compose.override.yaml"
+    if override_path.exists() and not override_path.read_text(errors="replace").startswith(OVERRIDE_HEADER):
+        sys.exit(f"error: {override_path} exists and was not written by this script, so it is left alone. "
+                 "Move it away, or merge by hand the volumes that alertmanager needs.")
     env = read_env(args.env)
     enabled, config, override = render(env, root)
     (root / "alertmanager" / "alertmanager.local.yml").write_text(config)
-    (root / "compose.override.yaml").write_text(override)
+    override_path.write_text(override)
 
     print("Alert channels: Mailpit (always)" + "".join(f", {e}" for e in enabled))
     if not enabled:

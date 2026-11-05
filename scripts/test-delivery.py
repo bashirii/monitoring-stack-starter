@@ -9,6 +9,9 @@ It reads the counters Alertmanager keeps per channel (`alertmanager_notification
 `alertmanager_notifications_failed_total`). A counter going up with no failure means the mail server answered
 "accepted" or Slack answered "ok". It cannot see your inbox or your channel, so look there too: the script prints what to expect.
 Takes about 1.5 minutes: the firing message after 10 s, the resolved message after the 1 minute group interval.
+
+Run it on a quiet stack: the counters are per channel, so other alerts' notifications are counted too.
+Only the Mailpit check names the test message itself.
 """
 import json
 import pathlib
@@ -82,6 +85,12 @@ def mailpit_subjects():
     return [m["Subject"] for m in json.loads(request(MAIL + "/api/v1/messages"))["messages"]]
 
 
+def other_active_alerts():
+    """Active alerts other than Watchdog and the test alert."""
+    alerts = json.loads(request(AM + "/api/v2/alerts?active=true&silenced=false&inhibited=false"))
+    return sorted({a["labels"].get("alertname", "?") for a in alerts} - {"Watchdog", "DeliveryTest"})
+
+
 def redacted_errors():
     out = subprocess.run(["docker", "compose", "logs", "--no-log-prefix", "--tail", "40", "alertmanager"],
                          cwd=ROOT, capture_output=True, text=True).stdout
@@ -114,6 +123,11 @@ def main():
     if not (SMTP_ON or SLACK_ON):
         print("note: no SMTP or Slack in .env, so only Mailpit is tested")
 
+    busy = other_active_alerts()
+    if busy:
+        print(f"warning: other alerts are active ({', '.join(busy)}). Their notifications share the channel counters, so a pass "
+              "may not prove the test message was delivered. Run this on a quiet stack, or read the inbox and Slack yourself.")
+
     try:
         request(MAIL + "/api/v1/messages", method="DELETE")
     except Exception:
@@ -132,11 +146,12 @@ def main():
             ok &= good
             print(f"  {'ok  ' if good else 'FAIL'} {stage:8} {channel:6} sent {got} of {n}, failed {bad} (after {took} s)")
         base_sent, base_failed = sent, failed
-        if stage == "firing":
-            subjects = mailpit_subjects()
-            hit = any("[FIRING] DeliveryTest" in s for s in subjects)
-            ok &= hit
-            print(f"  {'ok  ' if hit else 'FAIL'} Mailpit holds the message [FIRING] DeliveryTest")
+        # Names the test message itself; the counters are shared with other alerts.
+        subject = f"[{stage.upper()}] DeliveryTest"
+        hit = any(subject in s for s in mailpit_subjects())
+        ok &= hit
+        print(f"  {'ok  ' if hit else 'FAIL'} Mailpit holds the message {subject}")
+        if stage == "firing" and ok:
             print("  waiting for the resolved message (the 1 minute group interval)...", flush=True)
         if not ok:
             break
@@ -150,7 +165,7 @@ def main():
         if SMTP_ON:
             print(f"  - inbox of {ENV.get('ALERT_EMAIL_TO') or ENV['SMTP_USER']}: '[FIRING] DeliveryTest (warning)' and '[RESOLVED] ...' (check Spam once)")
         if SLACK_ON:
-            print(f"  - Slack {ENV.get('SLACK_CHANNEL', '')}: a red 'FIRING' and a green 'RESOLVED' message")
+            print(f"  - Slack {ENV.get('SLACK_CHANNEL', '')}: an amber 'FIRING' and a green 'RESOLVED' message")
     sys.exit(0 if ok else 1)
 
 
