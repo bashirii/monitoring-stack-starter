@@ -13,6 +13,14 @@ echo "== alert rule unit tests"
 run promtool "$PROM" test rules /w/tests/rules_test.yml
 echo "== alertmanager configuration"
 run amtool "$AM" check-config /w/alertmanager/alertmanager.yml
+echo "== alert delivery settings (scripts/alerting.py) produce a valid Alertmanager configuration"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/alertmanager"; cp alertmanager/alertmanager.yml "$tmp/alertmanager/"
+printf '%s\n' SMTP_SERVER=smtp.example.test SMTP_PORT=587 SMTP_USER=alerts@example.test SMTP_PASSWORD=not-a-real-password \
+  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/not-a-real-webhook 'SLACK_CHANNEL=#alerts' > "$tmp/env"
+python3 scripts/alerting.py --env "$tmp/env" --out "$tmp" >/dev/null
+chmod -R a+rX "$tmp"  # the amtool container runs as another user
+docker run --rm -v "$tmp:/w:ro" --entrypoint amtool "$AM" check-config /w/alertmanager/alertmanager.local.yml
 echo "== blackbox configuration"
 docker run --rm -v "$PWD/blackbox:/c:ro" "$BB" --config.file=/c/blackbox.yml --config.check
 echo "== dashboards are valid JSON and match the generator"

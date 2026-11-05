@@ -4,3 +4,5 @@ secrets/*
 *.log
 __pycache__/
 *.pyc
+alertmanager/alertmanager.local.yml
+compose.override.yaml

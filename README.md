@@ -9,7 +9,7 @@ It answers four questions about a server:
 1. **Is it up?** Every target is scraped every 15 seconds, and an HTTP check asks the service from outside.
 2. **Is it working?** Request rate, error ratio and latency per route.
 3. **Is the machine healthy?** CPU, memory, disk and every container.
-4. **Will someone find out?** Alerts go to email (Slack is one block away), and a `Watchdog` alert tells you when alerting itself has broken.
+4. **Will someone find out?** Alerts go to email and Slack, and a `Watchdog` alert tells you when alerting itself has broken.
 
 Everything here was written for this repository and run end to end. The alert rules have unit tests, and the alerts were fired for real (see [What was tested](#what-was-tested)).
 
@@ -99,10 +99,20 @@ docker compose kill -s HUP prometheus
 4. **Reuse the dashboards.** The queries in `scripts/build-dashboards.py` use `job="demo-api"`: change the job name, run the script, and commit the JSON.
 5. **Run `./scripts/check.sh`.** It validates the configuration and runs the rule unit tests, with nothing started. The same script runs on every push in GitHub Actions.
 
-## Slack, a real mail server and the Watchdog
+## Real email, Slack and the Watchdog
 
-- **Email:** `alertmanager/alertmanager.yml` points at the Mailpit container. Put your SMTP server in `smtp_smarthost` and keep its password in a file (`smtp_auth_password_file`), never in the YAML.
-- **Slack:** the receiver is written and commented out in `alertmanager.yml`. Create an incoming webhook, put its URL in a file, mount the file, and enable the block. The URL is read from the file and is never stored in the configuration.
+By default every alert is also written to Mailpit, so you can read it without any account. To receive alerts for real, put the settings in `.env` (the names are in `.env.example`) and generate the Alertmanager settings from them:
+
+```bash
+python3 scripts/alerting.py            # writes the secret files and a local copy of the Alertmanager config
+docker compose up -d alertmanager      # restart it with the new settings
+python3 scripts/test-delivery.py       # sends one test alert and checks every channel
+```
+
+- **Email:** any SMTP server. For Gmail use `smtp.gmail.com`, port `587` and an [app password](https://myaccount.google.com/apppasswords) (needs 2-step verification), not your normal password. Alertmanager only sends over an encrypted connection.
+- **Slack:** create an incoming webhook for a channel and put its URL in `SLACK_WEBHOOK_URL`.
+- **Where the secrets go:** Alertmanager cannot read environment variables, so `alerting.py` writes the SMTP password and the webhook URL to `./secrets` (ignored by git) and the configuration only holds the path of each file. The generated `alertmanager/alertmanager.local.yml` and `compose.override.yaml` are also ignored by git. Delete both to go back to Mailpit only.
+- **What the test shows:** `test-delivery.py` reads the counters Alertmanager keeps for each channel. A counter that goes up with no failure means the mail server or Slack accepted the message. It cannot see your inbox or channel, so it tells you what to look for there.
 - **Watchdog:** it fires all the time, so it is routed to a "blackhole" receiver. In production, point it at a heartbeat service (for example healthchecks.io) that alerts you when the heartbeats stop.
 
 ## Security notes
@@ -111,7 +121,7 @@ docker compose kill -s HUP prometheus
 - Prometheus runs without its web reload and shutdown endpoints (`--web.enable-lifecycle` is off), so a web page you visit cannot stop it or reload it by sending a request to `127.0.0.1:9090`. Reload with `docker compose kill -s HUP prometheus`.
 - Alertmanager and Mailpit have web pages and an API with no login. They are bound to `127.0.0.1` and hold only demo data here. Before you bind them to another address, add an authenticating reverse proxy, or give Alertmanager a `--web.config.file` with `basic_auth_users`, and stop publishing Mailpit's port (remove the service when you use a real mail server).
 - Browsers can reach `127.0.0.1` from any web page you open. That is the reason for the three points above; keep the stack off a machine you use to browse untrusted sites if the data in it matters.
-- The passwords are random files in `./secrets` (ignored by git). The compose file reads them as Docker secrets.
+- The passwords are random files in `./secrets` (ignored by git). The compose file reads them as Docker secrets. Your SMTP password and Slack webhook URL live in `.env` and in files in `./secrets`, never in a committed file; a Slack webhook URL lets anyone post to your channel, so if it leaks, revoke it in Slack.
 - `node-exporter` and `cAdvisor` read the host's filesystem read-only. That is how they see the machine, and it is why they should not be exposed.
 - The demo service runs as a non-root user with a read-only filesystem and no extra capabilities.
 
@@ -147,6 +157,8 @@ Run on 2026-11-03 on Arch Linux with Docker 29.9.2 and Compose 5.6.1.
 
 Times include the rule's own `for:` wait and up to one 15-second scrape. The emails were read in Mailpit.
 
+**Delivery to a real mail server and Slack** (`scripts/test-delivery.py`, 2026-11-05): one test alert sent straight to Alertmanager with Gmail's SMTP server (port 587, app password) and a Slack incoming webhook configured. Alertmanager's counters showed the firing message accepted by Mailpit, Gmail and Slack after 12 s, and the resolved message accepted by all three within a minute of the alert ending, with no failed notification. The generated configuration passes `amtool check-config` in `./scripts/check.sh`.
+
 ![Service overview during the error test](docs/img/service-overview-incident.jpg)
 
 *The Service overview dashboard while half of the requests fail: one alert firing, a 49% error ratio.*
@@ -155,7 +167,7 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 
 *The email Alertmanager sent for `HighErrorRate`.*
 
-**Not tested:** Slack delivery (the block is written but was not run), a real SMTP server, the `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked), the host alerts on a live machine (CPU, memory, disk and out-of-memory are covered by the unit tests, not provoked for real), routing `Watchdog` to a heartbeat service, running on a remote server behind a reverse proxy, other operating systems, and upgrades between versions.
+**Not tested:** Slack and a real mail server with a live rule firing (they were tested with a test alert sent to Alertmanager, see above; `test-alerts.py` was run before the receivers were merged and not repeated afterwards), an SMTP provider other than Gmail, the `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked), the host alerts on a live machine (CPU, memory, disk and out-of-memory are covered by the unit tests, not provoked for real), routing `Watchdog` to a heartbeat service, running on a remote server behind a reverse proxy, other operating systems, and upgrades between versions.
 
 **Known limits:** cAdvisor lists every container on the host, not only this stack's, so the container panels show all of them. `HostDiskFillsIn24h` stays quiet for the first 6 hours of a new stack by design. The demo service's port is published only so you can send it traffic.
 
@@ -163,14 +175,14 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 
 ```text
 compose.yaml                 the whole stack
-.env.example                 ports and retention
+.env.example                 ports, retention, SMTP and Slack settings
 prometheus/                  scrape jobs, alert rules, recording rules
-alertmanager/                routing, email, inhibition
+alertmanager/                routing, email, Slack, inhibition
 blackbox/                    the outside HTTP check
 grafana/                     datasource and dashboards, provisioned as code
 demo-api/                    the service that gets monitored
 tests/rules_test.yml         unit tests for the alert rules
-scripts/                     secrets, static checks, load, alert test, dashboard check, dashboard generator
+scripts/                     secrets, alert delivery setup and test, static checks, load, alert test, dashboard check, dashboard generator
 .github/workflows/check.yml  runs the static checks and rule unit tests on every push
 ```
 
