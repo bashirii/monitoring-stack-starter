@@ -4,6 +4,10 @@ global:
   smtp_from: alerts@monitoring.example.test
   smtp_require_tls: false
 
+# Message templates (email and Slack, ZIB TechSquare brand): alertmanager/templates/zib.tmpl
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
 route:
   receiver: team
   group_by: [alertname, job]
@@ -28,8 +32,10 @@ receivers:
     email_configs:
       - to: oncall@example.test
         send_resolved: true
+        html: '{{ template "zib.email.html" . }}'
+        text: '{{ template "zib.email.text" . }}'
         headers:
-          subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
+          subject: '{{ template "zib.subject" . }}'
       # @@EXTRA_EMAIL@@
     # @@SLACK@@
 

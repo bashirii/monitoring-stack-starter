@@ -69,9 +69,10 @@ def post_alert(resolve):
     """Posts the test alert; with resolve=True its end time is now, which makes Alertmanager send the resolved message."""
     now = datetime.now(timezone.utc)
     request(AM + "/api/v2/alerts", [{
-        "labels": {"alertname": "DeliveryTest", "severity": "warning", "job": "delivery-test"},
+        "labels": {"alertname": "DeliveryTest", "severity": "warning", "job": "delivery-test", "instance": "demo-api:8000"},
         "annotations": {"summary": "Test alert from scripts/test-delivery.py",
-                        "description": "If you can read this, this channel works. Nothing is wrong with your servers."},
+                        "description": "If you can read this, this channel works. Nothing is wrong with your servers.",
+                        "runbook": "docker compose ps, then docker compose logs --tail 50 <service>"},
         "startsAt": STARTED.isoformat(),
         "endsAt": (now if resolve else now + timedelta(minutes=10)).isoformat(),
     }])

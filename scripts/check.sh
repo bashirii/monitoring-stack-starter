@@ -12,15 +12,24 @@ run promtool "$PROM" check config /w/prometheus/prometheus.yml
 echo "== alert rule unit tests"
 run promtool "$PROM" test rules /w/tests/rules_test.yml
 echo "== alertmanager configuration"
-run amtool "$AM" check-config /w/alertmanager/alertmanager.yml
+run amtool -v "$PWD/alertmanager/templates:/etc/alertmanager/templates:ro" "$AM" check-config /w/alertmanager/alertmanager.yml
+echo "== email and Slack templates render for a firing and a resolved alert"
+for state in firing resolved; do
+  for name in email.html email.text slack.title slack.text slack.fallback slack.footer; do
+    out=$(run amtool -v "$PWD/tests:/d:ro" -v "$PWD/alertmanager/templates:/t:ro" "$AM" template render \
+      --template.glob='/t/*.tmpl' --template.text="{{ template \"zib.$name\" . }}" --template.data="/d/alert-$state.json")
+    echo "$out" | grep -q -E 'TargetDown|demo-api|ZIB TechSquare' || { echo "template zib.$name ($state) did not render the alert"; exit 1; }
+  done
+done
+echo ok
 echo "== alert delivery settings (scripts/alerting.py) produce a valid Alertmanager configuration"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/alertmanager"; cp alertmanager/alertmanager.yml "$tmp/alertmanager/"
+mkdir -p "$tmp/alertmanager"; cp alertmanager/alertmanager.yml "$tmp/alertmanager/"; cp -r alertmanager/templates "$tmp/alertmanager/templates"
 printf '%s\n' SMTP_SERVER=smtp.example.test SMTP_PORT=587 SMTP_USER=alerts@example.test SMTP_PASSWORD=not-a-real-password \
   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/not-a-real-webhook 'SLACK_CHANNEL=#alerts' > "$tmp/env"
 python3 scripts/alerting.py --env "$tmp/env" --out "$tmp" >/dev/null
 chmod -R a+rX "$tmp"  # the amtool container runs as another user
-docker run --rm -v "$tmp:/w:ro" --entrypoint amtool "$AM" check-config /w/alertmanager/alertmanager.local.yml
+docker run --rm -v "$tmp:/w:ro" -v "$tmp/alertmanager/templates:/etc/alertmanager/templates:ro" --entrypoint amtool "$AM" check-config /w/alertmanager/alertmanager.local.yml
 echo "== blackbox configuration"
 docker run --rm -v "$PWD/blackbox:/c:ro" "$BB" --config.file=/c/blackbox.yml --config.check
 echo "== dashboards are valid JSON and match the generator"

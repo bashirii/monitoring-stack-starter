@@ -113,6 +113,9 @@ python3 scripts/test-delivery.py       # sends one test alert and checks every c
 - **Slack:** create an incoming webhook for a channel and put its URL in `SLACK_WEBHOOK_URL`.
 - **Where the secrets go:** Alertmanager cannot read environment variables, so `alerting.py` writes the SMTP password and the webhook URL to `./secrets` (ignored by git) and the configuration only holds the path of each file. The generated `alertmanager/alertmanager.local.yml` and `compose.override.yaml` are also ignored by git. Delete both to go back to Mailpit only.
 - **What the test shows:** `test-delivery.py` reads the counters Alertmanager keeps for each channel. A counter that goes up with no failure means the mail server or Slack accepted the message. It cannot see your inbox or channel, so it tells you what to look for there.
+- **The look:** emails and Slack messages are written in `alertmanager/templates/zib.tmpl`. The email is plain HTML in tables with inline styles (so mail apps show it), has a plain-text twin, follows the system's light or dark mode where the mail app allows it, and shows the status as a word and a symbol as well as a colour. The Slack message has a coloured bar, a title that opens the alert, the summary and description, what to do first, the labels, four fields (severity, service, started, status) and a footer. The name, tagline, logo and time zone are the first lines of that file; change them to re-brand every message.
+- **Links:** the buttons and the Source links open Alertmanager and Prometheus at `http://127.0.0.1:<port>` by default. Behind a domain, set `ALERTMANAGER_EXTERNAL_URL` and `PROMETHEUS_EXTERNAL_URL` in `.env`.
+- **The logo in the email** is loaded from this repository on GitHub (`alertmanager/brand/`). If the repository is private, or the image is blocked, the mail app shows the name as text instead.
 - **Watchdog:** it fires all the time, so it is routed to a "blackhole" receiver. In production, point it at a heartbeat service (for example healthchecks.io) that alerts you when the heartbeats stop.
 
 ## Security notes
@@ -163,11 +166,21 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 
 *The Service overview dashboard while half of the requests fail: one alert firing, a 49% error ratio.*
 
-![An alert email in Mailpit](docs/img/alert-email.jpg)
+<img src="docs/img/alert-email-firing.jpg" alt="The firing email: logo header, an amber FIRING band, the summary, what to do first, when it started, and two buttons" width="420"> <img src="docs/img/alert-email-resolved.jpg" alt="The resolved email: the same layout with a green RESOLVED band and a resolved time" width="420">
 
-*The email Alertmanager sent for `HighErrorRate`.*
+*The firing and the resolved email for a test alert (`scripts/test-delivery.py`), shown as Mailpit serves them. The layout is in `alertmanager/templates/zib.tmpl`.*
 
-**Not tested:** Slack and a real mail server with a live rule firing (they were tested with a test alert sent to Alertmanager, see above; `test-alerts.py` was run before the receivers were merged and not repeated afterwards), an SMTP provider other than Gmail, the `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked), the host alerts on a live machine (CPU, memory, disk and out-of-memory are covered by the unit tests, not provoked for real), routing `Watchdog` to a heartbeat service, running on a remote server behind a reverse proxy, other operating systems, and upgrades between versions.
+**Not tested yet:**
+
+- A real alert, fired by a Prometheus rule, arriving in Gmail and Slack. Only a test alert sent to Alertmanager has been delivered there, and `scripts/test-alerts.py` has not been run since the receivers and message templates changed.
+- The email layout in Outlook, Apple Mail and the phone mail apps, and in Gmail's dark mode.
+- The Slack message layout on the phone app, and a Slack message that groups several alerts.
+- An SMTP provider other than Gmail.
+- The `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked).
+- The host alerts on a live machine: CPU, memory, disk and out-of-memory are covered by unit tests but were not provoked for real.
+- Routing `Watchdog` to a heartbeat service.
+- Running on a remote server behind a reverse proxy, with `ALERTMANAGER_EXTERNAL_URL` and `PROMETHEUS_EXTERNAL_URL` set.
+- Other operating systems, and upgrades between versions.
 
 **Known limits:** cAdvisor lists every container on the host, not only this stack's, so the container panels show all of them. `HostDiskFillsIn24h` stays quiet for the first 6 hours of a new stack by design. The demo service's port is published only so you can send it traffic.
 
@@ -177,7 +190,7 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 compose.yaml                 the whole stack
 .env.example                 ports, retention, SMTP and Slack settings
 prometheus/                  scrape jobs, alert rules, recording rules
-alertmanager/                routing, email, Slack, inhibition
+alertmanager/                routing, inhibition, message templates (email, Slack), brand images
 blackbox/                    the outside HTTP check
 grafana/                     datasource and dashboards, provisioned as code
 demo-api/                    the service that gets monitored

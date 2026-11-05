@@ -114,6 +114,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      # The "Source" link of an alert opens the query here instead of a container name. Set PROMETHEUS_EXTERNAL_URL behind a domain.
+      - --web.external-url=${PROMETHEUS_EXTERNAL_URL:-http://${BIND_IP:-127.0.0.1}:${PROMETHEUS_PORT:-9090}}
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
@@ -128,8 +130,11 @@ services:
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
+      # The address the links in emails and Slack messages point to. Set ALERTMANAGER_EXTERNAL_URL when you serve it behind a domain.
+      - --web.external-url=${ALERTMANAGER_EXTERNAL_URL:-http://${BIND_IP:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}}
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
       - alertdata:/alertmanager
     ports:
       - "${BIND_IP:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:9093"

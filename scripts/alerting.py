@@ -72,8 +72,10 @@ def email_block(env):
         # Port 587 starts plain and upgrades to TLS (STARTTLS); 465 is TLS from the first byte. Both must be encrypted.
         "  require_tls: true",
         "  send_resolved: true",
+        "  html: '{{ template \"zib.email.html\" . }}'",
+        "  text: '{{ template \"zib.email.text\" . }}'",
         "  headers:",
-        "    subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'",
+        "    subject: '{{ template \"zib.subject\" . }}'",
     ]
     return lines
 
@@ -87,9 +89,24 @@ def slack_block(env):
         lines.append(f"    channel: {q(env['SLACK_CHANNEL'])}")
     lines += [
         "    send_resolved: true",
-        "    title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'",
-        "    text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ if .Annotations.description }}: {{ .Annotations.description }}{{ end }}{{ \"\\n\" }}{{ end }}'",
-        "    color: '{{ if eq .Status \"firing\" }}danger{{ else }}good{{ end }}'",
+        "    short_fields: true",
+        "    mrkdwn_in: [text, fallback]",
+        "    color: '{{ template \"zib.slack.color\" . }}'",
+        "    fallback: '{{ template \"zib.slack.fallback\" . }}'",
+        "    title: '{{ template \"zib.slack.title\" . }}'",
+        # The title opens this alert in Alertmanager.
+        "    title_link: '{{ .ExternalURL }}/#/alerts?silenced=false&inhibited=false&filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D'",
+        "    text: '{{ template \"zib.slack.text\" . }}'",
+        "    fields:",
+        "      - title: Severity",
+        "        value: '{{ if .CommonLabels.severity }}{{ .CommonLabels.severity | toUpper }}{{ else }}-{{ end }}'",
+        "      - title: Service",
+        "        value: '{{ if .CommonLabels.job }}{{ .CommonLabels.job }}{{ else }}-{{ end }}'",
+        "      - title: Started",
+        "        value: '{{ template \"zib.slack.started\" . }}'",
+        "      - title: Status",
+        "        value: '{{ if eq .Status \"firing\" }}Firing{{ if gt (len .Alerts.Firing) 1 }} ({{ len .Alerts.Firing }} alerts){{ end }}{{ else }}Resolved{{ end }}'",
+        "    footer: '{{ template \"zib.slack.footer\" . }}'",
     ]
     return lines
 

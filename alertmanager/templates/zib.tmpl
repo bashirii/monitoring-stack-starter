@@ -1,0 +1,132 @@
+{{/*
+  Alert message templates for email and Slack, in the ZIB TechSquare brand.
+
+  The four `zib.*` values right below are the only branding: change them to re-brand every message.
+  Colours (brand design tokens): mark green #1B8A4B, text green #0B6B3A, amber #D9A21B, near-black #0F1512,
+  text #16201B, soft text #4A5A52, page #F6F8F7. Status is always a word and a symbol as well as a colour.
+*/}}
+
+{{ define "zib.name" }}ZIB TechSquare{{ end }}
+{{ define "zib.tagline" }}Technology built around you.{{ end }}
+{{ define "zib.logo" }}https://raw.githubusercontent.com/bashirii/monitoring-stack-starter/main/alertmanager/brand/zib-logo-dark-280.png{{ end }}
+{{/* Shown times use this zone, in one place: the name below is a tz database name. */}}
+{{ define "zib.time" }}{{ (tz "Africa/Dar_es_Salaam" .).Format "02 Jan 2006, 15:04 MST" }}{{ end }}
+
+{{/* ---------- subject (kept stable: scripts/test-alerts.py looks for "[FIRING] Name") ---------- */}}
+{{ define "zib.subject" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ if .CommonLabels.severity }} ({{ .CommonLabels.severity }}){{ end }}{{ end }}
+
+{{/* ---------- email, HTML ---------- */}}
+{{ define "zib.email.html" }}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{ template "zib.subject" . }}</title>
+<style>
+  @media (prefers-color-scheme: dark) {
+    .page { background: #0F1512 !important; }
+    .card { background: #17201B !important; border-color: #2A3630 !important; }
+    .ink { color: #E4ECE8 !important; }
+    .soft { color: #A3B3AA !important; }
+    .panel { background: #1D2822 !important; }
+    .link { color: #45C97F !important; }
+  }
+  @media only screen and (max-width: 620px) { .wrap { width: 100% !important; } .pad { padding-left: 16px !important; padding-right: 16px !important; } }
+</style>
+</head>
+<body class="page" style="margin:0;padding:0;background:#F6F8F7;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{{ range .Alerts }}{{ .Annotations.summary }}. {{ end }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="page" style="background:#F6F8F7;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;font-family:Inter,'Segoe UI',Helvetica,Arial,sans-serif;">
+
+  <tr><td class="pad" style="background:#0F1512;padding:18px 24px;border-radius:8px 8px 0 0;border-bottom:3px solid #1B8A4B;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td align="left"><img src="{{ template "zib.logo" }}" alt="{{ template "zib.name" }}" width="140" style="display:block;border:0;color:#E4ECE8;font-size:16px;font-weight:700;"></td>
+      <td align="right" style="color:#A3B3AA;font-size:12px;letter-spacing:.06em;text-transform:uppercase;">Monitoring alert</td>
+    </tr></table>
+  </td></tr>
+
+  <tr><td style="padding:0;">
+    {{ if eq .Status "firing" }}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="pad" style="background:#D9A21B;color:#16201B;padding:12px 24px;font-size:14px;font-weight:700;letter-spacing:.04em;">&#9650; FIRING{{ if gt (len .Alerts.Firing) 1 }} &middot; {{ len .Alerts.Firing }} alerts{{ end }}{{ if .CommonLabels.severity }} &middot; {{ .CommonLabels.severity | toUpper }}{{ end }}</td></tr></table>
+    {{ else }}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="pad" style="background:#0B6B3A;color:#FFFFFF;padding:12px 24px;font-size:14px;font-weight:700;letter-spacing:.04em;">&#10003; RESOLVED{{ if gt (len .Alerts.Resolved) 1 }} &middot; {{ len .Alerts.Resolved }} alerts{{ end }}{{ if .CommonLabels.severity }} &middot; {{ .CommonLabels.severity | toUpper }}{{ end }}</td></tr></table>
+    {{ end }}
+  </td></tr>
+
+  <tr><td class="card pad" style="background:#FFFFFF;border:1px solid #DDE5E0;border-top:0;border-radius:0 0 8px 8px;padding:24px;">
+
+    <h1 class="ink" style="margin:0 0 4px 0;font-size:24px;line-height:30px;color:#16201B;font-weight:700;">{{ .CommonLabels.alertname }}</h1>
+    {{ if .CommonLabels.job }}<p class="soft" style="margin:0 0 20px 0;font-size:14px;color:#4A5A52;">Service: <strong class="ink" style="color:#16201B;">{{ .CommonLabels.job }}</strong></p>{{ end }}
+
+    {{ range .Alerts }}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px 0;"><tr>
+      <td width="4" style="background:{{ if eq .Status "firing" }}#D9A21B{{ else }}#1B8A4B{{ end }};font-size:0;line-height:0;">&nbsp;</td>
+      <td class="panel" style="background:#F6F8F7;padding:16px 18px;">
+        <p class="ink" style="margin:0 0 8px 0;font-size:16px;line-height:22px;font-weight:700;color:#16201B;">{{ .Annotations.summary }}</p>
+        {{ if .Annotations.description }}<p class="ink" style="margin:0 0 12px 0;font-size:14px;line-height:21px;color:#16201B;">{{ .Annotations.description }}</p>{{ end }}
+        {{ if .Annotations.runbook }}<p class="soft" style="margin:0 0 4px 0;font-size:12px;color:#4A5A52;text-transform:uppercase;letter-spacing:.05em;">What to do first</p>
+        <p class="ink" style="margin:0 0 12px 0;font-family:'JetBrains Mono',Consolas,Menlo,monospace;font-size:13px;line-height:19px;color:#16201B;">{{ .Annotations.runbook }}</p>{{ end }}
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;line-height:20px;">
+          <tr><td class="soft" style="color:#4A5A52;padding-right:12px;">Started</td><td class="ink" style="color:#16201B;">{{ template "zib.time" .StartsAt }}</td></tr>
+          {{ if eq .Status "resolved" }}<tr><td class="soft" style="color:#4A5A52;padding-right:12px;">Resolved</td><td class="ink" style="color:#16201B;">{{ template "zib.time" .EndsAt }}</td></tr>{{ end }}
+          {{ range .Labels.SortedPairs }}{{ if and (ne .Name "alertname") (ne .Name "severity") (ne .Name "job") }}<tr><td class="soft" style="color:#4A5A52;padding-right:12px;">{{ .Name }}</td><td class="ink" style="color:#16201B;font-family:'JetBrains Mono',Consolas,Menlo,monospace;font-size:12px;">{{ .Value }}</td></tr>{{ end }}{{ end }}
+        </table>
+      </td>
+    </tr></table>
+    {{ end }}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 0 0;"><tr>
+      <td style="background:#0B6B3A;border-radius:8px;"><a href="{{ .ExternalURL }}/#/alerts?silenced=false&inhibited=false&filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:700;color:#FFFFFF;text-decoration:none;">Open in Alertmanager</a></td>
+      <td width="10"></td>
+      <td style="border:1px solid #0B6B3A;border-radius:8px;"><a class="link" href="{{ .ExternalURL }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D" style="display:inline-block;padding:10px 20px;font-size:14px;font-weight:700;color:#0B6B3A;text-decoration:none;">Silence</a></td>
+    </tr></table>
+
+  </td></tr>
+
+  <tr><td class="pad soft" align="center" style="padding:16px 24px 0 24px;font-size:12px;line-height:18px;color:#4A5A52;">
+    <strong class="ink" style="color:#16201B;">{{ template "zib.name" }}</strong> &middot; {{ template "zib.tagline" }}<br>
+    Sent by Alertmanager to {{ .Receiver }}. Times are shown in East Africa Time.
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+{{ end }}
+
+{{/* ---------- email, plain text (for mail apps that do not show HTML) ---------- */}}
+{{ define "zib.email.text" }}{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}{{ if .CommonLabels.severity }} ({{ .CommonLabels.severity }}){{ end }}
+{{ range .Alerts }}
+{{ .Annotations.summary }}
+{{ if .Annotations.description }}{{ .Annotations.description }}
+{{ end }}{{ if .Annotations.runbook }}First: {{ .Annotations.runbook }}
+{{ end }}Started: {{ template "zib.time" .StartsAt }}{{ if eq .Status "resolved" }}
+Resolved: {{ template "zib.time" .EndsAt }}{{ end }}
+{{ range .Labels.SortedPairs }}{{ if and (ne .Name "alertname") (ne .Name "severity") }}  {{ .Name }} = {{ .Value }}
+{{ end }}{{ end }}{{ end }}
+Open in Alertmanager: {{ .ExternalURL }}
+
+{{ template "zib.name" }} - {{ template "zib.tagline" }}
+{{ end }}
+
+{{/* ---------- Slack ---------- */}}
+{{ define "zib.slack.title" }}{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}:rotating_light:{{ else }}:warning:{{ end }} FIRING{{ else }}:white_check_mark: RESOLVED{{ end }}: {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts }}){{ end }}{{ end }}
+
+{{ define "zib.slack.color" }}{{ if eq .Status "firing" }}#D9A21B{{ else }}#1B8A4B{{ end }}{{ end }}
+
+{{ define "zib.slack.fallback" }}[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}{{ if .CommonLabels.severity }} ({{ .CommonLabels.severity }}){{ end }}: {{ (index .Alerts 0).Annotations.summary }}{{ end }}
+
+{{ define "zib.slack.text" }}{{ range .Alerts }}*{{ .Annotations.summary }}*
+{{ if .Annotations.description }}{{ .Annotations.description }}
+{{ end }}{{ if .Annotations.runbook }}:point_right: First: `{{ .Annotations.runbook }}`
+{{ end }}{{ range .Labels.SortedPairs }}{{ if and (ne .Name "alertname") (ne .Name "severity") (ne .Name "job") }}`{{ .Name }}={{ .Value }}`  {{ end }}{{ end }}
+{{ end }}{{ end }}
+
+{{ define "zib.slack.started" }}{{ template "zib.time" (index .Alerts 0).StartsAt }}{{ end }}
+
+{{ define "zib.slack.footer" }}{{ template "zib.name" }} · {{ template "zib.tagline" }}{{ end }}

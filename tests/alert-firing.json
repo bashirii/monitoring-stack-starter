@@ -1,0 +1,7 @@
+{"receiver":"team","status":"firing",
+ "alerts":[{"status":"firing","labels":{"alertname":"TargetDown","severity":"critical","job":"demo-api","instance":"demo-api:8000"},
+  "annotations":{"summary":"demo-api is down","description":"Prometheus cannot scrape demo-api:8000 (job demo-api) for 1 minute. The service or its exporter is stopped, or the network path is broken.","runbook":"docker compose ps, then docker compose logs --tail 50 <service>"},
+  "startsAt":"2026-11-05T14:20:00Z","endsAt":"0001-01-01T00:00:00Z","generatorURL":"http://127.0.0.1:9090/graph"}],
+ "groupLabels":{"alertname":"TargetDown","job":"demo-api"},
+ "commonLabels":{"alertname":"TargetDown","severity":"critical","job":"demo-api"},
+ "commonAnnotations":{},"externalURL":"http://127.0.0.1:9093"}
