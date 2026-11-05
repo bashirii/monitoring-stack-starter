@@ -149,7 +149,7 @@ Run on 2026-11-03 on Arch Linux with Docker 29.9.2 and Compose 5.6.1.
 
 **The stack running:** all 9 scrape targets were up within about a minute of `docker compose up`, and no rule had an evaluation error. `scripts/check-dashboards.py` ran every query of both dashboards through Grafana: 28 panels and 34 queries, no errors, and every panel showed data once traffic was sent.
 
-**The alerts, fired for real** (`scripts/test-alerts.py`, 13 of 13 checks passed, about 15 minutes in all):
+**The alerts, fired for real** (`scripts/test-alerts.py`, 13 of 13 checks passed on 2026-11-03, about 15 minutes in all):
 
 | Step | What was done | Alert fired after | Email |
 |------|---------------|-------------------|-------|
@@ -159,6 +159,8 @@ Run on 2026-11-03 on Arch Linux with Docker 29.9.2 and Compose 5.6.1.
 | 4 | The demo service stopped, then started | `TargetDown` 80 s, `ProbeFailed` firing in the same window | `[FIRING]` after 10 s; `TargetDown` cleared 15 s after the restart |
 
 Times include the rule's own `for:` wait and up to one 15-second scrape. The emails were read in Mailpit.
+
+**The same test with Gmail and Slack switched on** (2026-11-05, 15 of 15 checks, the two new ones being the channel counters): every alert fired and every `[FIRING]` and `[RESOLVED]` email reached Mailpit again, and Alertmanager's counters showed 7 messages accepted by Slack and 14 emails (7 to Mailpit, 7 to Gmail), with no failed notification. The firing times were within 15 seconds of the first run (`RedisDown` 45 s, `HighErrorRate` 90 s, `HighLatencyP95` 225 s, `TargetDown` 75 s).
 
 **Delivery to a real mail server and Slack** (`scripts/test-delivery.py`, 2026-11-05): one test alert sent straight to Alertmanager with Gmail's SMTP server (port 587, app password) and a Slack incoming webhook configured. Alertmanager's counters showed the firing message accepted by Mailpit, Gmail and Slack after 12 s, and the resolved message accepted by all three within a minute of the alert ending, with no failed notification. The generated configuration passes `amtool check-config` in `./scripts/check.sh`.
 
@@ -172,9 +174,8 @@ Times include the rule's own `for:` wait and up to one 15-second scrape. The ema
 
 **Not tested yet:**
 
-- A real alert, fired by a Prometheus rule, arriving in Gmail and Slack. Only a test alert sent to Alertmanager has been delivered there, and `scripts/test-alerts.py` has not been run since the receivers and message templates changed.
 - The email layout in Outlook, Apple Mail and the phone mail apps, and in Gmail's dark mode.
-- The Slack message layout on the phone app, and a Slack message that groups several alerts.
+- A Slack message that groups several alerts.
 - An SMTP provider other than Gmail.
 - The `CertificateExpiresSoon` alert (it needs an https target; only the rule syntax is checked).
 - The host alerts on a live machine: CPU, memory, disk and out-of-memory are covered by unit tests but were not provoked for real.

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Breaks the stack on purpose, step by step, and checks that the right alerts fire and the emails arrive.
+"""Breaks the stack on purpose, step by step, and checks that the right alerts fire and the messages arrive: in Mailpit, and (when set up with scripts/alerting.py)
+at your real SMTP server and Slack, which Alertmanager's counters confirm.
 
 The stack must be running. Takes about 15 minutes, because alerts wait out their "for" time.
     python3 scripts/test-alerts.py
 """
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -34,6 +36,18 @@ def emails():
     return [m["Subject"] for m in get(MAIL + "/api/v1/messages")["messages"]]
 
 
+def notifications():
+    """Messages Alertmanager has sent and failed to send, per channel, from its metrics."""
+    sent, failed = {"email": 0, "slack": 0}, {"email": 0, "slack": 0}
+    with urllib.request.urlopen(AM + "/metrics", timeout=10) as r:
+        for line in r.read().decode().splitlines():
+            m = re.match(r'alertmanager_notifications(_failed)?_total\{([^}]*)\} ([0-9.e+]+)', line)
+            integration = re.search(r'integration="(\w+)"', m[2]) if m else None
+            if integration and integration[1] in sent:
+                (failed if m[1] else sent)[integration[1]] += int(float(m[3]))
+    return sent, failed
+
+
 def wait(description, test, timeout):
     start = time.time()
     while time.time() - start < timeout:
@@ -56,6 +70,7 @@ def traffic(mode, seconds):
 
 def main():
     print("start: clear the mailbox and check the baseline")
+    sent0, failed0 = notifications()
     urllib.request.urlopen(urllib.request.Request(MAIL + "/api/v1/messages", method="DELETE"), timeout=10)
     wait("only quiet alerts at the start", lambda: not {"TargetDown", "RedisDown", "PostgresDown", "HighErrorRate", "HighLatencyP95", "ProbeFailed"} & {k for k, v in prom_alerts().items() if v == "firing"}, 60)
 
@@ -86,6 +101,16 @@ def main():
     wait("an email says [FIRING] TargetDown", lambda: any("[FIRING] TargetDown" in s for s in emails()), 120)
     compose("start", "demo-api")
     wait("TargetDown clears", lambda: "TargetDown" not in prom_alerts(), 150)
+
+    # Mailpit only proves the first email channel. With a real SMTP server and Slack configured (scripts/alerting.py),
+    # Alertmanager's own counters show that those channels accepted the messages too.
+    print("5. every channel accepted its messages")
+    sent1, failed1 = notifications()
+    for channel in ("email", "slack"):
+        got, bad = sent1[channel] - sent0[channel], failed1[channel] - failed0[channel]
+        ok = bad == 0 and got > 0
+        print(f"  {'ok  ' if ok else 'FAIL'} {channel}: {got} sent, {bad} failed")
+        results.append((f"{channel} notifications sent with no failure", ok, 0))
 
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)} of {len(results)} checks passed")
