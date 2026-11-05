@@ -49,9 +49,14 @@ def q(value):
 
 def write_secret(directory, name, value):
     directory.mkdir(mode=0o700, exist_ok=True)
+    directory.chmod(0o700)  # also closes a folder that already existed with looser rights
     path = directory / name
-    path.write_text(value)  # no newline: a trailing one would become part of the password
-    # The container reads it as another user, so the folder is closed and the file is readable (same as scripts/secrets.sh).
+    # Created owner-only, filled, and only then made readable: there is no moment when the content is readable by others.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(value)  # no newline: a trailing one would become part of the password
+    # The container reads it as another user (nobody), so the file must be world-readable. The closed folder keeps
+    # other users on this machine out; Docker, which mounts it, runs as root (same approach as scripts/secrets.sh).
     path.chmod(0o644)
 
 
